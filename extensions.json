@@ -1,0 +1,78 @@
+{
+  "format": 1,
+  "base": "https://github.com/lqy306/Vellum-extensions/releases/latest/download",
+  "extensions": [
+    {
+      "id": "io.github.vellum.timestamp",
+      "name": "Timestamp",
+      "description": "Insert the current date and time",
+      "version": "1.0.0",
+      "binary": "timestamp-plugin.so",
+      "source": "timestamp-plugin-linux-source.vut"
+    },
+    {
+      "id": "io.github.vellum.document-statistics",
+      "name": "Document Statistics",
+      "description": "Live word, line and character counts",
+      "version": "1.0.0",
+      "binary": "word-count-plugin.so",
+      "source": "word-count-plugin-linux-source.vut"
+    },
+    {
+      "id": "io.github.vellum.ai-completion",
+      "name": "AI Completion",
+      "description": "Complete text through an OpenAI-compatible API",
+      "version": "0.3.0",
+      "binary": "ai-completion-plugin.so",
+      "source": "ai-completion-plugin-linux-source.vut"
+    },
+    {
+      "id": "io.github.vellum.link-check",
+      "name": "Test Links",
+      "description": "Check HTTP/HTTPS links in the document",
+      "version": "1.0.0",
+      "binary": "link-check-plugin.so",
+      "source": "link-check-plugin-linux-source.vut"
+    },
+    {
+      "id": "io.github.vellum.project-sidebar",
+      "name": "Project Sidebar",
+      "description": "Browse a project directory",
+      "version": "1.0.0",
+      "binary": "project-sidebar-plugin.so",
+      "source": "project-sidebar-plugin-linux-source.vut"
+    },
+    {
+      "id": "io.github.vellum.build-run",
+      "name": "Build & Run",
+      "description": "Build and run from the editor",
+      "version": "1.0.0",
+      "binary": "build-run-plugin.so",
+      "source": "build-run-plugin-linux-source.vut"
+    },
+    {
+      "id": "io.github.vellum.vim-mode",
+      "name": "Vi Mode",
+      "description": "Modal editing keybindings",
+      "version": "1.0.0",
+      "binary": "vim-mode-plugin.so",
+      "source": "vim-mode-plugin-linux-source.vut"
+    },
+    {
+      "id": "io.github.vellum.screenshot",
+      "name": "Screenshot",
+      "description": "Capture the editor window",
+      "version": "1.0.0",
+      "binary": "screenshot-plugin.so",
+      "source": "screenshot-plugin-linux-source.vut"
+    },
+    {
+      "id": "io.github.vellum.welcome",
+      "name": "Welcome Guide",
+      "description": "Interactive first-run guide",
+      "version": "1.0.0",
+      "binary": "welcome-plugin.so",
+      "source": "welcome-plugin-linux-source.vut"
+    }
+  ]
+}
