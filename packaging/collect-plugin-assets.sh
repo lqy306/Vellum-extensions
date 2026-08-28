@@ -33,7 +33,7 @@ project-sidebar-plugin|io.github.vellum.project-sidebar|Project Sidebar|Browse a
 build-run-plugin|io.github.vellum.build-run|Build & Run|Build and run from the editor|1.0.0
 vim-mode-plugin|io.github.vellum.vim-mode|Vi Mode|Modal editing keybindings|1.0.0
 screenshot-plugin|io.github.vellum.screenshot|Screenshot|Capture the editor window|1.0.0
-welcome-plugin|io.github.vellum.welcome|Welcome Guide|Interactive first-run guide|1.0.0"
+welcome-plugin|io.github.vellum.welcome|Welcome Guide|Interactive first-run guide|0.3.0"
 
 # 复制二进制：编辑器仓库构建在 build/src/plugins，扩展仓库 Makefile 输出在 build
 printf '%s\n' "$PLUGIN_LIST" | while IFS='|' read -r name _id _display _desc _version; do

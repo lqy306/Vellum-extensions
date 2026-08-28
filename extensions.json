@@ -70,7 +70,7 @@
       "id": "io.github.vellum.welcome",
       "name": "Welcome Guide",
       "description": "Interactive first-run guide",
-      "version": "1.0.0",
+      "version": "0.3.0",
       "binary": "welcome-plugin.so",
       "source": "welcome-plugin-linux-source.vut"
     }
