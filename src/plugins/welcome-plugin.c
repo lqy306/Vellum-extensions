@@ -523,7 +523,7 @@ welcome_start_installs(MtWelcomeData *data)
 {
     guint i;
 
-    /* 收集勾选且尚未安装的扩展 */
+    /* 收集勾选的扩展：无论是否已安装，均按当前偏好重装以保证源码/二进制一致 */
     data->pending_install_ids = g_ptr_array_new_with_free_func(g_free);
     for (i = 0; i < data->extension_buttons->len; i++)
     {
@@ -535,9 +535,6 @@ welcome_start_installs(MtWelcomeData *data)
             continue;
         id = g_object_get_data(G_OBJECT(sw), "vellum-plugin-id");
         if (id == NULL)
-            continue;
-        /* 若已安装则跳过（热更新无需重装） */
-        if (data->host->has_plugin != NULL && data->host->has_plugin(data->host, id))
             continue;
         g_ptr_array_add(data->pending_install_ids, g_strdup(id));
     }
