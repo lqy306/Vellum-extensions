@@ -24,19 +24,19 @@ mkdir -p "$OUT_DIR"
 "$PROJECT_ROOT/packaging/vut/build-source-packages.sh" "$OUT_DIR"
 
 # 插件清单：构建产物名（.so / .vut）、显示信息
-# 格式：name|id|display|description|version
-PLUGIN_LIST="timestamp-plugin|io.github.vellum.timestamp|Timestamp|Insert the current date and time|1.0.0
-word-count-plugin|io.github.vellum.document-statistics|Document Statistics|Live word, line and character counts|1.0.0
-ai-completion-plugin|io.github.vellum.ai-completion|AI Completion|Complete text through an OpenAI-compatible API|0.3.0
-link-check-plugin|io.github.vellum.link-check|Test Links|Check HTTP/HTTPS links in the document|1.0.0
-project-sidebar-plugin|io.github.vellum.project-sidebar|Project Sidebar|Browse a project directory|1.0.0
-build-run-plugin|io.github.vellum.build-run|Build & Run|Build and run from the editor|1.0.0
-vim-mode-plugin|io.github.vellum.vim-mode|Vi Mode|Modal editing keybindings|1.0.0
-screenshot-plugin|io.github.vellum.screenshot|Screenshot|Capture the editor window|1.0.0
-welcome-plugin|io.github.vellum.welcome|Welcome Guide|Interactive first-run guide|0.3.0"
+# 格式：name|id|display|description|version|source_package（用于生成源码文件名）
+PLUGIN_LIST="timestamp-plugin|io.github.vellum.timestamp|Timestamp|Insert the current date and time|1.0.0|timestamp
+word-count-plugin|io.github.vellum.document-statistics|Document Statistics|Live word, line and character counts|1.0.0|document-statistics
+ai-completion-plugin|io.github.vellum.ai-completion|AI Completion|Complete text through an OpenAI-compatible API|0.3.0|ai-completion
+link-check-plugin|io.github.vellum.link-check|Test Links|Check HTTP/HTTPS links in the document|1.0.0|link-check
+project-sidebar-plugin|io.github.vellum.project-sidebar|Project Sidebar|Browse a project directory|1.0.0|project-sidebar
+build-run-plugin|io.github.vellum.build-run|Build & Run|Build and run from the editor|1.0.0|build-run
+vim-mode-plugin|io.github.vellum.vim-mode|Vi Mode|Modal editing keybindings|1.0.0|vim-mode
+screenshot-plugin|io.github.vellum.screenshot|Screenshot|Capture the editor window|1.0.0|screenshot
+welcome-plugin|io.github.vellum.welcome|Welcome Guide|Interactive first-run guide|0.3.0|welcome"
 
 # 复制二进制：编辑器仓库构建在 build/src/plugins，扩展仓库 Makefile 输出在 build
-printf '%s\n' "$PLUGIN_LIST" | while IFS='|' read -r name _id _display _desc _version; do
+printf '%s\n' "$PLUGIN_LIST" | while IFS='|' read -r name _id _display _desc _version _source_pkg; do
     if [ -f "$BUILD_DIR/src/plugins/$name.so" ]; then
         cp "$BUILD_DIR/src/plugins/$name.so" "$OUT_DIR/$name.so"
     elif [ -f "$BUILD_DIR/$name.so" ]; then
@@ -56,14 +56,14 @@ out_dir = os.environ['OUT_DIR']
 base = os.environ['BASE_URL']
 entries = []
 for line in os.environ['PLUGIN_LIST'].splitlines():
-    name, plugin_id, display, desc, version = line.split('|')
+    name, plugin_id, display, desc, version, source_pkg = line.split('|')
     entries.append({
         "id": plugin_id,
         "name": display,
         "description": desc,
         "version": version,
         "binary": name + ".so",
-        "source": name + "-linux-source.vut",
+        "source": source_pkg + "-linux-source.vut",
     })
 
 with open(os.path.join(out_dir, 'extensions.json'), 'w', encoding='utf-8') as f:
