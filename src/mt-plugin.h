@@ -125,6 +125,18 @@ struct _MtPluginHost
     /* 当前活动文档的 GtkSourceView 语言 ID；非代码文档返回 NULL。
      * AI 补全等按文档类型启停的扩展依赖它区分具体格式。 */
     const gchar *(*get_document_language_id)(MtPluginHost *host);
+    /* 扩展是否已安装（已加载且启用）；供欢迎引导等判断是否需要下载。 */
+    gboolean (*has_plugin)(MtPluginHost *host, const gchar *plugin_id);
+    /* 按稳定 ID 异步安装扩展，prefer_source 为 TRUE 时优先源码；热更新无需重启。 */
+    void (*install_extension_async)(MtPluginHost *host,
+                                   const gchar *plugin_id,
+                                   gboolean prefer_source,
+                                   GCancellable *cancellable,
+                                   GAsyncReadyCallback callback,
+                                   gpointer user_data);
+    gboolean (*install_extension_finish)(MtPluginHost *host,
+                                        GAsyncResult *result,
+                                        GError **error);
 };
 
 struct _MtPluginInfo

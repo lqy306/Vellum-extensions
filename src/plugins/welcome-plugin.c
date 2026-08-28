@@ -54,6 +54,11 @@ struct _MtWelcomeData
     GtkLabel *custom_source_status;
     gboolean is_x64;
     gboolean prefer_source;
+    /* 热更新安装队列 */
+    GPtrArray *pending_install_ids;
+    guint install_index;
+    guint install_success;
+    guint install_failed;
 };
 
 static MtWelcomeData *welcome_data;
@@ -67,6 +72,12 @@ static void welcome_check_env_clicked(GtkButton *button,
                                       gpointer user_data);
 static void welcome_custom_source_add_clicked(GtkButton *button,
                                               gpointer user_data);
+static void welcome_install_next(MtWelcomeData *data);
+static void welcome_install_done(GObject *source,
+                                 GAsyncResult *result,
+                                 gpointer user_data);
+static void welcome_close_guide(MtWelcomeData *data);
+static void welcome_ask_remove(MtWelcomeData *data);
 
 static const gchar * const welcome_extension_files[] = {
     "ai-completion.ini",
@@ -417,6 +428,126 @@ welcome_add_market_source(const gchar *url, GError **error)
     g_key_file_unref(key_file);
     g_free(path);
     return TRUE;
+}
+
+static void
+welcome_install_done(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+    MtWelcomeData *data;
+    GError *error;
+
+    (void)source;
+    data = user_data;
+    error = NULL;
+    if (data->host->install_extension_finish != NULL &&
+        !data->host->install_extension_finish(data->host, result, &error))
+    {
+        data->install_failed++;
+        g_message("Welcome install failed for '%s': %s",
+                  (const gchar *)g_ptr_array_index(data->pending_install_ids, data->install_index - 1),
+                  error != NULL ? error->message : "unknown");
+        g_clear_error(&error);
+    }
+    else
+    {
+        data->install_success++;
+    }
+    welcome_install_next(data);
+}
+
+static void
+welcome_install_next(MtWelcomeData *data)
+{
+    const gchar *plugin_id;
+
+    if (data->pending_install_ids == NULL ||
+        data->install_index >= data->pending_install_ids->len)
+    {
+        /* 全部完成：热更新已生效，无需重启 */
+        gchar *message;
+
+        if (data->install_success > 0 || data->install_failed > 0)
+        {
+            message = g_strdup_printf(welcome_text("已安装 %u 个扩展，失败 %u 个（热更新，无需重启）",
+                                                   "Installed %u extensions, %u failed (hot update, no restart needed)"),
+                                      data->install_success, data->install_failed);
+            if (data->host->show_toast != NULL)
+                data->host->show_toast(data->host, message);
+            g_free(message);
+        }
+        /* 清理并进入下一阶段 */
+        g_clear_pointer(&data->pending_install_ids, g_ptr_array_unref);
+        data->guide_complete = TRUE;
+        welcome_close_guide(data);
+        welcome_ask_remove(data);
+        return;
+    }
+
+    plugin_id = g_ptr_array_index(data->pending_install_ids, data->install_index);
+    data->install_index++;
+
+    /* 更新按钮为安装中 */
+    if (data->next_button != NULL)
+    {
+        gchar *label;
+
+        label = g_strdup_printf(welcome_text("正在安装 %u/%u…", "Installing %u/%u…"),
+                                data->install_index, (guint)data->pending_install_ids->len);
+        gtk_button_set_label(data->next_button, label);
+        g_free(label);
+        gtk_widget_set_sensitive(GTK_WIDGET(data->next_button), FALSE);
+        gtk_widget_set_sensitive(GTK_WIDGET(data->back_button), FALSE);
+    }
+
+    if (data->host->install_extension_async != NULL)
+    {
+        data->host->install_extension_async(data->host, plugin_id, data->prefer_source,
+                                            NULL, welcome_install_done, data);
+    }
+    else
+    {
+        g_warning("Host does not support install_extension_async");
+        welcome_install_next(data);
+    }
+}
+
+static void
+welcome_start_installs(MtWelcomeData *data)
+{
+    guint i;
+
+    /* 收集勾选且尚未安装的扩展 */
+    data->pending_install_ids = g_ptr_array_new_with_free_func(g_free);
+    for (i = 0; i < data->extension_buttons->len; i++)
+    {
+        GtkSwitch *sw;
+        const gchar *id;
+
+        sw = g_ptr_array_index(data->extension_buttons, i);
+        if (!gtk_switch_get_active(sw))
+            continue;
+        id = g_object_get_data(G_OBJECT(sw), "vellum-plugin-id");
+        if (id == NULL)
+            continue;
+        /* 若已安装则跳过（热更新无需重装） */
+        if (data->host->has_plugin != NULL && data->host->has_plugin(data->host, id))
+            continue;
+        g_ptr_array_add(data->pending_install_ids, g_strdup(id));
+    }
+
+    if (data->pending_install_ids->len == 0)
+    {
+        g_clear_pointer(&data->pending_install_ids, g_ptr_array_unref);
+        data->guide_complete = TRUE;
+        welcome_close_guide(data);
+        welcome_ask_remove(data);
+        return;
+    }
+
+    data->install_index = 0;
+    data->install_success = 0;
+    data->install_failed = 0;
+    welcome_install_next(data);
 }
 
 static void
@@ -990,10 +1121,23 @@ welcome_next_clicked(GtkButton *button, gpointer user_data)
         welcome_show_page(data, data->page + 1);
         return;
     }
+    /* 保存偏好并移除未勾选的扩展 */
     welcome_apply_extension_choices(data);
-    data->guide_complete = TRUE;
-    welcome_close_guide(data);
-    welcome_ask_remove(data);
+    /* 热更新：为勾选但尚未安装的扩展触发下载/编译，无需重启 */
+    if (data->host->has_plugin != NULL && data->host->install_extension_async != NULL)
+    {
+        /* 禁用导航，显示安装中 */
+        gtk_widget_set_sensitive(GTK_WIDGET(data->next_button), FALSE);
+        gtk_widget_set_sensitive(GTK_WIDGET(data->back_button), FALSE);
+        welcome_start_installs(data);
+    }
+    else
+    {
+        /* 旧宿主不支持热更新安装，仅完成移除 */
+        data->guide_complete = TRUE;
+        welcome_close_guide(data);
+        welcome_ask_remove(data);
+    }
 }
 
 static void
@@ -1124,6 +1268,7 @@ welcome_data_free(gpointer user_data)
     }
     welcome_close_guide(data);
     g_clear_pointer(&data->extension_buttons, g_ptr_array_unref);
+    g_clear_pointer(&data->pending_install_ids, g_ptr_array_unref);
     g_free(data->plugin_id);
     g_free(data);
     welcome_data = NULL;
