@@ -94,8 +94,18 @@ static const gchar * const welcome_extension_files[] = {
 static gboolean
 welcome_is_zh(void)
 {
+    const gchar *language_env;
     const gchar * const *languages;
 
+    /* 优先尊重 Vellum 首选项设置的 LANGUAGE，其次系统语言，避免中英混杂 */
+    language_env = g_getenv("LANGUAGE");
+    if (language_env != NULL && *language_env != '\0')
+    {
+        if (g_str_has_prefix(language_env, "zh"))
+            return TRUE;
+        if (g_str_has_prefix(language_env, "en"))
+            return FALSE;
+    }
     languages = g_get_language_names();
     return languages != NULL && languages[0] != NULL &&
            g_str_has_prefix(languages[0], "zh");
