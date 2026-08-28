@@ -463,7 +463,7 @@ welcome_install_next(MtWelcomeData *data)
     if (data->pending_install_ids == NULL ||
         data->install_index >= data->pending_install_ids->len)
     {
-        /* 全部完成：热更新已生效，无需重启 */
+        /* 全部完成：热更新已生效，无需重启；不再自动询问删除欢迎引导，避免误触 */
         gchar *message;
 
         if (data->install_success > 0 || data->install_failed > 0)
@@ -475,11 +475,18 @@ welcome_install_next(MtWelcomeData *data)
                 data->host->show_toast(data->host, message);
             g_free(message);
         }
-        /* 清理并进入下一阶段 */
+        else if (data->install_success == 0 && data->install_failed == 0)
+        {
+            if (data->host->show_toast != NULL)
+                data->host->show_toast(data->host,
+                                       welcome_text("所选扩展已就绪（热更新）",
+                                                    "Selected extensions are ready (hot update)"));
+        }
         g_clear_pointer(&data->pending_install_ids, g_ptr_array_unref);
         data->guide_complete = TRUE;
         welcome_close_guide(data);
-        welcome_ask_remove(data);
+        /* 完成后不自动弹出“删除欢迎引导”对话框，避免用户误以为刚安装的扩展被删除；
+         * 欢迎引导仍可从主菜单再次打开，若需删除可在扩展列表中手动操作。 */
         return;
     }
 
