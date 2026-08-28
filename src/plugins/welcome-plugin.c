@@ -541,6 +541,8 @@ welcome_start_installs(MtWelcomeData *data)
         const gchar *id;
 
         sw = g_ptr_array_index(data->extension_buttons, i);
+        if (!GTK_IS_SWITCH(sw))
+            continue;
         if (!gtk_switch_get_active(sw))
             continue;
         id = g_object_get_data(G_OBJECT(sw), "vellum-plugin-id");
@@ -820,6 +822,7 @@ welcome_build_extensions_page(MtWelcomeData *data)
     GtkWidget *list;
     guint index;
 
+    g_ptr_array_set_size(data->extension_buttons, 0);
     outer_scroll = gtk_scrolled_window_new();
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(outer_scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_widget_set_vexpand(outer_scroll, TRUE);
@@ -1060,7 +1063,11 @@ welcome_apply_extension_choices(MtWelcomeData *data)
         const gchar *id;
 
         sw = g_ptr_array_index(data->extension_buttons, index);
+        if (!GTK_IS_SWITCH(sw))
+            continue;
         id = g_object_get_data(G_OBJECT(sw), "vellum-plugin-id");
+        if (id == NULL)
+            continue;
         if (!gtk_switch_get_active(sw))
         {
             data->host->request_plugin_removal(data->host, id);
