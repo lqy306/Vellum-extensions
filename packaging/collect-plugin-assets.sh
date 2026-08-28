@@ -11,9 +11,9 @@ BUILD_DIR=${BUILD_DIR:-"$PROJECT_ROOT/build"}
 OUT_DIR=${OUT_DIR:-"$PROJECT_ROOT/dist/plugin-assets"}
 BASE_URL=${BASE_URL:-"https://github.com/lqy306/Vellum-extensions/releases/latest/download"}
 
-if [ ! -d "$BUILD_DIR/src/plugins" ]; then
+if [ ! -d "$BUILD_DIR/src/plugins" ] && [ ! -d "$BUILD_DIR" ]; then
     echo "Build directory not found: $BUILD_DIR" >&2
-    echo "Run: meson setup build && ninja -C build" >&2
+    echo "Run: meson setup build && ninja -C build (or make in extensions repo)" >&2
     exit 1
 fi
 
