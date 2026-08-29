@@ -99,6 +99,12 @@ struct _MtPluginHost
     void (*show_toast)(MtPluginHost *host, const gchar *message);
     void (*show_inline_completion)(MtPluginHost *host, const gchar *text);
     void (*clear_inline_completion)(MtPluginHost *host);
+    /* 错误修复的行内 diff 覆盖层：在 offset 处把 old_text 以红色删除线、
+     * new_text 以绿色展示；apply 时在 offset 处将 old 替换为 new。 */
+    void (*show_inline_diff)(MtPluginHost *host, gint offset,
+                             const gchar *old_text, const gchar *new_text);
+    void (*clear_inline_diff)(MtPluginHost *host);
+    void (*apply_inline_diff)(MtPluginHost *host);
     /* 请求宿主卸载并移除指定插件（含内置插件）。用于插件引导用户
      * 完成向导后自我删除：确认后插件会从列表隐藏且重启后不再加载。 */
     void (*request_plugin_removal)(MtPluginHost *host, const gchar *plugin_id);
@@ -125,6 +131,9 @@ struct _MtPluginHost
     /* 当前活动文档的 GtkSourceView 语言 ID；非代码文档返回 NULL。
      * AI 补全等按文档类型启停的扩展依赖它区分具体格式。 */
     const gchar *(*get_document_language_id)(MtPluginHost *host);
+    /* 返回当前窗口已打开文档的绝对文件路径列表（仅已保存文件），用于多文件上下文。
+     * count 可为 NULL；返回以 NULL 结尾的 GStrv，调用者用 g_strfreev 释放。 */
+    gchar **(*get_open_documents)(MtPluginHost *host, gsize *count);
     /* 扩展是否已安装（已加载且启用）；供欢迎引导等判断是否需要下载。 */
     gboolean (*has_plugin)(MtPluginHost *host, const gchar *plugin_id);
     /* 按稳定 ID 异步安装扩展，prefer_source 为 TRUE 时优先源码；热更新无需重启。 */

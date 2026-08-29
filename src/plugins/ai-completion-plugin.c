@@ -27,6 +27,9 @@
 #include <libsoup/soup.h>
 #include <string.h>
 
+#include "ai-completion-private.h"
+#include "ai-completion-features.h"
+
 #define AI_COMPLETION_GROUP "AI Completion"
 #define AI_CONTEXT_LIMIT 8000
 #define AI_SUFFIX_LIMIT 2000
@@ -97,6 +100,7 @@ struct _AiRequest
     gboolean streaming;
     gboolean error_mode;
     guint http_status;
+    guint attempt;
 };
 
 struct _AiCandidate
@@ -114,6 +118,11 @@ struct _AiConfigWidgets
     AdwEntryRow *model_row;
     AdwPasswordEntryRow *key_row;
     AdwSwitchRow *auto_row;
+    AdwSwitchRow *include_row;
+    AdwComboRow *context_row;
+    AdwSwitchRow *save_ctx_row;
+    AdwSwitchRow *auto_fix_row;
+    AdwSpinRow *delay_row;
     GListStore *language_items;
     AiCodeSummaryConfigWidgets *summary_widgets;
     GtkWindow *window;
@@ -142,8 +151,16 @@ static gchar *ai_auto_context;
 static gboolean ai_request_in_flight;
 /* 输入停顿后自动补全（无需快捷键）；由“偏好设置”中的开关控制并持久化。 */
 static gboolean ai_auto_enabled = TRUE;
+/* 停顿空闲后自动触发错误修复（红/绿 diff 预览，需 Tab 接受）；可在设置关闭。 */
+static gboolean ai_auto_fix_enabled = TRUE;
+/* 自动纠错空闲定时器（晚于补全触发，避免与行内幽灵冲突）。 */
+static guint ai_auto_fix_source_id = 0;
 /* 缓存“禁用补全的文档类型”集合：插件激活与设置保存时从 ini 重建。 */
 static GHashTable *ai_disabled_languages;
+/* 自动请求序号：用于空结果只重试一次（关闭总结再试）。 */
+static guint ai_req_seq;
+/* 单次自动重试时临时关闭总结。 */
+static gboolean ai_force_no_summary;
 
 static gchar *
 ai_completion_config_path(void)
@@ -159,7 +176,7 @@ ai_completion_config_path(void)
     return path;
 }
 
-static GKeyFile *
+GKeyFile *
 ai_completion_load_settings(void)
 {
     GKeyFile *settings;
@@ -173,7 +190,7 @@ ai_completion_load_settings(void)
     return settings;
 }
 
-static gchar *
+gchar *
 ai_completion_get_setting(GKeyFile *settings, const gchar *key)
 {
     gchar *value;
@@ -182,6 +199,23 @@ ai_completion_get_setting(GKeyFile *settings, const gchar *key)
     if (value == NULL)
     {
         value = g_strdup("");
+    }
+
+    return value;
+}
+
+static gboolean
+ai_completion_get_include_summary(GKeyFile *settings)
+{
+    GError *error;
+    gboolean value;
+
+    error = NULL;
+    value = g_key_file_get_boolean(settings, AI_COMPLETION_GROUP, "include-summary", &error);
+    if (error != NULL)
+    {
+        g_clear_error(&error);
+        return TRUE;
     }
 
     return value;
@@ -849,7 +883,7 @@ ai_completion_pref_auto_set(gboolean value, gpointer user_data)
     ai_completion_set_auto_enabled(value);
 }
 
-static gchar *
+gchar *
 ai_completion_normalize_endpoint(const gchar *endpoint)
 {
     gchar *normalized;
@@ -1046,6 +1080,7 @@ ai_completion_config_save_clicked(GtkButton *button, gpointer user_data)
     const gchar *model;
     const gchar *api_key;
     gboolean auto_enabled;
+    gint auto_delay;
     GError *error;
 
     (void)button;
@@ -1055,6 +1090,7 @@ ai_completion_config_save_clicked(GtkButton *button, gpointer user_data)
     model = gtk_editable_get_text(GTK_EDITABLE(widgets->model_row));
     api_key = gtk_editable_get_text(GTK_EDITABLE(widgets->key_row));
     auto_enabled = adw_switch_row_get_active(widgets->auto_row);
+    auto_delay = (gint)adw_spin_row_get_value(widgets->delay_row);
     error = NULL;
 
     if (!g_str_has_prefix(endpoint, "https://") && !g_str_has_prefix(endpoint, "http://"))
@@ -1092,6 +1128,36 @@ ai_completion_config_save_clicked(GtkButton *button, gpointer user_data)
     {
         widgets->host->show_toast(widgets->host, _("AI completion settings saved"));
         ai_auto_enabled = auto_enabled;
+        ai_auto_fix_enabled = adw_switch_row_get_active(widgets->auto_fix_row);
+        ai_features_set_base_delay((guint)auto_delay);
+        {
+            /* 持久化“include-summary”开关到同一 ini（保持 0600 权限）。 */
+            GKeyFile *extra = ai_completion_load_settings();
+            gchar *extra_path;
+            gchar *extra_contents;
+
+            g_key_file_set_boolean(extra, AI_COMPLETION_GROUP, "include-summary",
+                                    adw_switch_row_get_active(widgets->include_row));
+            g_key_file_set_integer(extra, AI_COMPLETION_GROUP, "context-mode",
+                                   (gint)adw_combo_row_get_selected(widgets->context_row));
+            g_key_file_set_boolean(extra, AI_COMPLETION_GROUP, "save-context-hidden",
+                                   adw_switch_row_get_active(widgets->save_ctx_row));
+            g_key_file_set_boolean(extra, AI_COMPLETION_GROUP, "auto-error-fix",
+                                   adw_switch_row_get_active(widgets->auto_fix_row));
+            g_key_file_set_integer(extra, AI_COMPLETION_GROUP, "auto-delay", auto_delay);
+            extra_contents = g_key_file_to_data(extra, NULL, NULL);
+            extra_path = ai_completion_config_path();
+            if (extra_contents != NULL)
+            {
+                if (g_file_set_contents(extra_path, extra_contents, (gssize)strlen(extra_contents), NULL))
+                {
+                    g_chmod(extra_path, 0600);
+                }
+                g_free(extra_contents);
+            }
+            g_free(extra_path);
+            g_key_file_unref(extra);
+        }
         gtk_window_destroy(widgets->window);
     }
     else
@@ -1122,7 +1188,7 @@ ai_completion_trim_context(const gchar *text, glong limit)
 }
 
 static gchar *
-ai_completion_build_body(const gchar *model, const gchar *prefix, const gchar *suffix, const gchar *summary)
+ai_completion_build_body(const gchar *model, const gchar *prefix, const gchar *suffix, const gchar *summary, const gchar *multifile)
 {
     JsonBuilder *builder;
     JsonGenerator *generator;
@@ -1135,15 +1201,17 @@ ai_completion_build_body(const gchar *model, const gchar *prefix, const gchar *s
         /* 与真实补全工具一致的 fill-in-the-middle 思路：同时给出光标前后文，
          * 让模型只补中间段；聊天模型用标记符描述前缀与后缀。指令刻意强调
          * “不是对话”：聊天模型常把“你好”当开场白接一句问候。 */
-        prompt = g_strdup_printf("This is not a chat. Continue the code or prose at the cursor. A local AI-maintained summary may appear before the code; treat it as context, not output. The text before the cursor is between <fim_prefix> and <fim_suffix>; the text after the cursor follows <fim_suffix>. Output only the missing middle that flows from the prefix toward the suffix. Never greet, never answer a question, never explain, never use Markdown or fences, never repeat text that already exists.\n\n<document_summary>\n%s\n</document_summary>\n<fim_prefix>\n%s\n<fim_suffix>\n%s\n<fim_middle>\n",
+        prompt = g_strdup_printf("This is not a chat. Continue the code or prose at the cursor. A local AI-maintained summary may appear before the code; treat it as context, not output. The text before the cursor is between <fim_prefix> and <fim_suffix>; the text after the cursor follows <fim_suffix>. Output only the missing middle that flows from the prefix toward the suffix. Never greet, never answer a question, never explain, never use Markdown or fences, never repeat text that already exists.\n\n<document_summary>\n%s\n</document_summary>\n<related_files>\n%s\n</related_files>\n<fim_prefix>\n%s\n<fim_suffix>\n%s\n<fim_middle>\n",
                                  summary != NULL ? summary : "",
+                                 multifile != NULL ? multifile : "",
                                  prefix,
                                  suffix);
     }
     else
     {
-        prompt = g_strdup_printf("This is not a chat. Continue the code or prose at the cursor. A local AI-maintained summary may appear before the code; treat it as context, not output. Output only the characters that should immediately follow the cursor, as if the file keeps going. Never greet, never answer a question, never explain, never use Markdown or fences, never repeat text that already exists.\n\n<document_summary>\n%s\n</document_summary>\n%s",
+        prompt = g_strdup_printf("This is not a chat. Continue the code or prose at the cursor. A local AI-maintained summary may appear before the code; treat it as context, not output. Output only the characters that should immediately follow the cursor, as if the file keeps going. Never greet, never answer a question, never explain, never use Markdown or fences, never repeat text that already exists.\n\n<document_summary>\n%s\n</document_summary>\n<related_files>\n%s\n</related_files>\n%s",
                                  summary != NULL ? summary : "",
+                                 multifile != NULL ? multifile : "",
                                  prefix);
     }
     builder = json_builder_new();
@@ -1195,6 +1263,197 @@ ai_completion_build_body(const gchar *model, const gchar *prefix, const gchar *s
     g_free(prompt);
 
     return body;
+}
+
+#define AI_MULTIFILE_LIMIT 16000
+
+static gchar *
+ai_completion_find_project_root(const gchar *file_path)
+{
+    static const gchar *markers[] = {
+        ".git", "meson.build", "Cargo.toml", "package.json", "Makefile",
+        "CMakeLists.txt", "pyproject.toml", ".vellum", "go.mod", NULL
+    };
+    gchar *dir;
+
+    if (file_path == NULL || *file_path == '\0')
+    {
+        return NULL;
+    }
+    dir = g_path_get_dirname(file_path);
+    for (;;)
+    {
+        gboolean found = FALSE;
+        gint i;
+
+        for (i = 0; markers[i] != NULL; i++)
+        {
+            gchar *candidate = g_build_filename(dir, markers[i], NULL);
+
+            if (g_file_test(candidate, G_FILE_TEST_EXISTS))
+            {
+                found = TRUE;
+            }
+            g_free(candidate);
+            if (found)
+            {
+                break;
+            }
+        }
+        if (found)
+        {
+            return dir;
+        }
+        {
+            gchar *parent = g_path_get_dirname(dir);
+
+            if (g_strcmp0(parent, dir) == 0)
+            {
+                g_free(parent);
+                g_free(dir);
+                return NULL;
+            }
+            g_free(dir);
+            dir = parent;
+        }
+    }
+}
+
+static void
+ai_completion_scan_project(const gchar *root, GString *ctx)
+{
+    static const gchar *exts[] = {
+        ".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".py", ".js", ".ts", ".java",
+        ".go", ".rs", ".rb", ".php", ".cs", ".swift", ".kt", ".sh", ".lua", ".sql",
+        ".json", ".yaml", ".yml", ".toml", ".md", NULL
+    };
+    GDir *dir;
+    const gchar *name;
+    guint files = 0;
+
+    if (root == NULL)
+    {
+        return;
+    }
+    dir = g_dir_open(root, 0, NULL);
+    if (dir == NULL)
+    {
+        return;
+    }
+    while ((name = g_dir_read_name(dir)) != NULL && files < 40 &&
+           ctx->len < AI_MULTIFILE_LIMIT)
+    {
+        gchar *full;
+        gint i;
+        gboolean ok = FALSE;
+
+        if (name[0] == '.')
+        {
+            continue;
+        }
+        for (i = 0; exts[i] != NULL; i++)
+        {
+            if (g_str_has_suffix(name, exts[i]))
+            {
+                ok = TRUE;
+                break;
+            }
+        }
+        if (!ok)
+        {
+            continue;
+        }
+        full = g_build_filename(root, name, NULL);
+        if (g_file_test(full, G_FILE_TEST_IS_REGULAR))
+        {
+            gchar *content = NULL;
+
+            if (g_file_get_contents(full, &content, NULL, NULL) && content != NULL)
+            {
+                g_string_append_printf(ctx, "\n--- %s ---\n", full);
+                g_string_append(ctx, content);
+                g_free(content);
+                files++;
+            }
+        }
+        g_free(full);
+    }
+    g_dir_close(dir);
+}
+
+/* 按设置装配多文件上下文：0=当前文件 1=已打开文件 2=项目目录。
+ * 返回新分配字符串（可能为空），调用者 g_free。 */
+gchar *
+ai_completion_gather_context(MtPluginHost *host)
+{
+    GKeyFile *settings;
+    gint mode;
+    gboolean save_hidden;
+    GString *ctx;
+    gchar *result = NULL;
+
+    settings = ai_completion_load_settings();
+    mode = g_key_file_get_integer(settings, "AI Completion", "context-mode", NULL);
+    save_hidden = g_key_file_get_boolean(settings, "AI Completion",
+                                          "save-context-hidden", NULL);
+    g_key_file_unref(settings);
+    if (mode != 1 && mode != 2)
+    {
+        return NULL;
+    }
+
+    ctx = g_string_new(NULL);
+    if (mode == 1 && host->get_open_documents != NULL)
+    {
+        gsize count = 0;
+        gchar **paths = host->get_open_documents(host, &count);
+
+        if (paths != NULL)
+        {
+            for (gsize i = 0; paths[i] != NULL && ctx->len < AI_MULTIFILE_LIMIT; i++)
+            {
+                gchar *content = NULL;
+
+                if (g_file_get_contents(paths[i], &content, NULL, NULL) && content != NULL)
+                {
+                    g_string_append_printf(ctx, "\n--- %s ---\n", paths[i]);
+                    g_string_append(ctx, content);
+                    g_free(content);
+                }
+            }
+            g_strfreev(paths);
+        }
+    }
+    else if (mode == 2)
+    {
+        gchar *cur = host->get_current_file_path != NULL ?
+                     host->get_current_file_path(host) : NULL;
+        gchar *root = ai_completion_find_project_root(cur);
+
+        if (root != NULL)
+        {
+            ai_completion_scan_project(root, ctx);
+            if (save_hidden)
+            {
+                gchar *cache = g_build_filename(root, ".ai-context-cache", NULL);
+
+                g_file_set_contents(cache, ctx->str, -1, NULL);
+                g_free(cache);
+            }
+            g_free(root);
+        }
+        g_free(cur);
+    }
+
+    if (ctx->len > 0)
+    {
+        result = g_string_free(ctx, FALSE);
+    }
+    else
+    {
+        g_string_free(ctx, TRUE);
+    }
+    return result;
 }
 
 static gchar *
@@ -1288,7 +1547,7 @@ ai_completion_extract_choice_content(JsonObject *choice)
     return content;
 }
 
-static gchar *
+gchar *
 ai_completion_extract_content(const gchar *response, gsize length, GError **error)
 {
     JsonParser *parser;
@@ -1367,30 +1626,36 @@ ai_completion_error_detail_data(const gchar *data, gsize length)
 static gchar *
 ai_completion_prepare_inline_candidate(const gchar *completion)
 {
-    const gchar *start;
-    const gchar *end;
+    gchar *trimmed;
+    const gchar *p;
 
     if (completion == NULL)
     {
         return NULL;
     }
 
-    start = completion;
-    while (*start == '\r' || *start == '\n')
+    /* 保留完整多行：流式补全过程中整段函数体会逐行长出，宿主负责多行渲染。
+     * 仅裁掉尾部空白（含换行），全部为空白时视为尚无内容、继续累积。 */
+    trimmed = g_strchomp(g_strdup(completion));
+    if (*trimmed == '\0')
     {
-        start++;
+        g_free(trimmed);
+        return NULL;
     }
-    end = strpbrk(start, "\r\n");
-    if (end == NULL)
+    for (p = trimmed; *p != '\0'; p++)
     {
-        end = start + strlen(start);
+        if (!g_ascii_isspace((guchar)*p))
+        {
+            break;
+        }
     }
-    if (end == start)
+    if (*p == '\0')
     {
+        g_free(trimmed);
         return NULL;
     }
 
-    return g_strndup(start, (gsize)(end - start));
+    return trimmed;
 }
 
 /* 当前行（最后一个换行之后）只输入了空白时，补全开头的空白与已输入空白
@@ -1531,6 +1796,7 @@ ai_completion_clear_candidate(void)
     g_clear_pointer(&ai_candidate.context, g_free);
     g_clear_pointer(&ai_candidate.suffix, g_free);
     ai_candidate.host = NULL;
+    ai_features_clear();
 }
 
 static void
@@ -1547,6 +1813,11 @@ ai_completion_auto_cancel(void)
     {
         g_source_remove(ai_auto_source_id);
         ai_auto_source_id = 0;
+    }
+    if (ai_auto_fix_source_id != 0)
+    {
+        g_source_remove(ai_auto_fix_source_id);
+        ai_auto_fix_source_id = 0;
     }
 }
 
@@ -1666,6 +1937,9 @@ ai_completion_sse_payload_delta(const gchar *payload)
 
 static void
 ai_completion_finish_stream(AiRequest *request);
+
+static void
+ai_completion_request_start(MtPluginHost *host, gboolean automatic);
 
 static gboolean
 ai_completion_sse_line(AiRequest *request, const gchar *line, gsize line_length)
@@ -1843,6 +2117,15 @@ ai_completion_finish_stream(AiRequest *request)
 
     if (request->completion == NULL || *request->completion == '\0')
     {
+        if (request->automatic && request->attempt == 1)
+        {
+            /* 空结果重试一次：临时关闭总结再请求，避免总结误导模型。 */
+            ai_request_in_flight = FALSE;
+            ai_force_no_summary = TRUE;
+            ai_completion_request_start(request->host, TRUE);
+            ai_completion_request_free(request);
+            return;
+        }
         if (!request->automatic)
         {
             request->host->show_toast(request->host, _("AI service returned an empty completion"));
@@ -1852,6 +2135,7 @@ ai_completion_finish_stream(AiRequest *request)
         return;
     }
     ai_completion_show_candidate(request, request->completion);
+    ai_features_stats_add_chars(strlen(request->completion));
     if (!request->automatic)
     {
         request->host->show_toast(request->host, _("AI completion ready: press Tab to accept or Escape to dismiss"));
@@ -1873,9 +2157,10 @@ ai_completion_finish_json(AiRequest *request)
     if (completion != NULL)
     {
         ai_completion_show_candidate(request, completion);
+        ai_features_stats_add_chars(strlen(completion));
         if (!request->automatic)
         {
-            request->host->show_toast(request->host, _("AI completion ready: press Tab to accept or Escape to dismiss"));
+            /* 补全提示已改为行内半透明幽灵，不再弹 toast 干扰。 */
         }
         g_free(completion);
     }
@@ -2110,6 +2395,34 @@ ai_completion_auto_cb(gpointer user_data)
     return G_SOURCE_REMOVE;
 }
 
+static gboolean
+ai_completion_auto_fix_cb(gpointer user_data)
+{
+    MtPluginHost *host;
+
+    host = user_data;
+    ai_auto_fix_source_id = 0;
+    if (ai_session == NULL)
+    {
+        return G_SOURCE_REMOVE;
+    }
+    if (ai_candidate.text != NULL)
+    {
+        /* 行内补全候选优先：已有幽灵文本时不叠加纠错预览。 */
+        return G_SOURCE_REMOVE;
+    }
+    if (ai_features_is_fix_visible())
+    {
+        return G_SOURCE_REMOVE;
+    }
+    if (!ai_completion_document_allowed(host, TRUE))
+    {
+        return G_SOURCE_REMOVE;
+    }
+    ai_features_fix_start(host);
+    return G_SOURCE_REMOVE;
+}
+
 static void
 ai_completion_auto_schedule(MtPluginHost *host)
 {
@@ -2127,10 +2440,33 @@ ai_completion_auto_schedule(MtPluginHost *host)
     if (ai_auto_source_id != 0)
     {
         g_source_remove(ai_auto_source_id);
+        ai_auto_source_id = 0;
     }
-    ai_auto_source_id = g_timeout_add(AI_AUTO_DELAY_MILLISECONDS,
+    if (ai_features_is_fix_visible())
+    {
+        /* 继续输入即撤销上一次空闲弹出的纠错预览。 */
+        ai_features_clear();
+    }
+    if (!ai_features_cursor_safe(host))
+    {
+        /* 光标在标识符/字符串/注释中间时不自动弹出补全（手动仍可用）。 */
+        return;
+    }
+    ai_auto_source_id = g_timeout_add(ai_features_adaptive_delay(),
                                       ai_completion_auto_cb,
                                       host);
+    if (ai_auto_fix_enabled && ai_candidate.text == NULL &&
+        !ai_features_is_fix_visible())
+    {
+        if (ai_auto_fix_source_id != 0)
+        {
+            g_source_remove(ai_auto_fix_source_id);
+            ai_auto_fix_source_id = 0;
+        }
+        ai_auto_fix_source_id = g_timeout_add(ai_features_adaptive_delay() + 700,
+                                              ai_completion_auto_fix_cb,
+                                              host);
+    }
 }
 
 static gboolean
@@ -2144,6 +2480,25 @@ ai_completion_handle_key(MtPluginHost *host,
 
     (void)keycode;
     (void)user_data;
+    if (ai_features_is_fix_visible())
+    {
+        if (keyval == GDK_KEY_Tab && state == 0)
+        {
+            /* 错误修复预览优先于补全候选：Tab 在光标处应用红/绿 diff。 */
+            if (host->apply_inline_diff != NULL)
+            {
+                host->apply_inline_diff(host);
+            }
+            ai_features_clear();
+            return TRUE;
+        }
+        if (keyval == GDK_KEY_Escape && state == 0)
+        {
+            /* Esc 关闭修复 diff。 */
+            ai_features_clear();
+            return TRUE;
+        }
+    }
     if (ai_candidate.text != NULL && ai_candidate.host == host)
     {
         current_context = host->get_text_before_cursor(host);
@@ -2158,6 +2513,7 @@ ai_completion_handle_key(MtPluginHost *host,
                  * 候选文本在展示时就已完成缩进对齐与后缀去重，接受即所见。 */
                 accepted = g_strdup(ai_candidate.text);
                 g_free(current_context);
+                ai_features_stats_add_accepted();
                 ai_completion_clear_candidate();
                 host->insert_text(host, accepted);
                 g_free(accepted);
@@ -2194,6 +2550,7 @@ ai_completion_request_start(MtPluginHost *host, gboolean automatic)
     gchar *suffix;
     gchar *trimmed_context;
     gchar *trimmed_suffix;
+    gboolean include_summary;
     gchar *body;
     gchar *authorization;
     gchar *summary;
@@ -2283,8 +2640,17 @@ ai_completion_request_start(MtPluginHost *host, gboolean automatic)
     g_free(ai_auto_context);
     ai_auto_context = g_strdup(trimmed_context);
     ai_auto_context_loaded = TRUE;
-    summary = ai_code_summary_get_current(host);
-    body = ai_completion_build_body(model, trimmed_context, trimmed_suffix, summary);
+    if (ai_force_no_summary)
+        include_summary = FALSE;
+    summary = include_summary ? ai_code_summary_get_current(host) : NULL;
+    ai_force_no_summary = FALSE;
+    {
+        gchar *multifile = ai_completion_gather_context(host);
+
+        body = ai_completion_build_body(model, trimmed_context, trimmed_suffix,
+                                        summary, multifile);
+        g_free(multifile);
+    }
     g_free(summary);
     message = soup_message_new("POST", endpoint);
     if (message == NULL)
@@ -2325,8 +2691,10 @@ ai_completion_request_start(MtPluginHost *host, gboolean automatic)
     request->context = g_strdup(context);
     request->suffix = g_strdup(suffix);
     request->generation = ai_generation;
+    request->attempt = ++ai_req_seq;
     request->automatic = automatic;
     ai_request_in_flight = TRUE;
+    ai_features_stats_add_request();
     soup_session_send_async(ai_session,
                             message,
                             G_PRIORITY_DEFAULT,
@@ -2335,7 +2703,7 @@ ai_completion_request_start(MtPluginHost *host, gboolean automatic)
                             request);
     if (!automatic)
     {
-        host->show_toast(host, _("Requesting AI completion…"));
+        /* 不再弹 toast：补全以行内幽灵形式直接显示。 */
         /* 手动请求是用户的明确意图：取消拒绝抑制，让响应正常展示。 */
         ai_reject_until_us = 0;
     }
@@ -2398,6 +2766,23 @@ mt_plugin_activate(MtPluginHost *host, GError **error)
 
         settings = ai_completion_load_settings();
         ai_auto_enabled = ai_completion_get_auto_enabled(settings);
+        {
+            gboolean fix_enabled = TRUE;
+
+            if (g_key_file_has_key(settings, AI_COMPLETION_GROUP, "auto-error-fix", NULL))
+            {
+                fix_enabled = g_key_file_get_boolean(settings,
+                                                     AI_COMPLETION_GROUP,
+                                                     "auto-error-fix",
+                                                     NULL);
+            }
+            ai_auto_fix_enabled = fix_enabled;
+        }
+        {
+            gint d = g_key_file_get_integer(settings, AI_COMPLETION_GROUP, "auto-delay", NULL);
+            if (d <= 0) d = 200;
+            ai_features_set_base_delay((guint)d);
+        }
         ai_completion_languages_load(settings);
         g_key_file_unref(settings);
     }
@@ -2418,6 +2803,7 @@ mt_plugin_activate(MtPluginHost *host, GError **error)
     host->set_accelerators(host, "app.ai-complete", accelerators);
     host->add_key_handler(host, ai_completion_handle_key, NULL, NULL);
     ai_code_summary_activate(host);
+    ai_features_init(host);
 
     if (host->add_preference_switch != NULL)
     {
@@ -2442,6 +2828,7 @@ mt_plugin_deactivate(MtPluginHost *host)
     ai_completion_auto_cancel();
     ai_completion_clear_candidate();
     ai_code_summary_deactivate();
+    ai_features_shutdown();
     g_clear_pointer(&ai_auto_context, g_free);
     ai_auto_context_loaded = FALSE;
     ai_request_in_flight = FALSE;
@@ -2512,6 +2899,84 @@ mt_plugin_configure(MtPluginHost *host, gpointer parent_window)
     adw_switch_row_set_active(widgets->auto_row, auto_enabled);
     adw_preferences_group_add(group, GTK_WIDGET(widgets->auto_row));
 
+    widgets->auto_fix_row = ADW_SWITCH_ROW(adw_switch_row_new());
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(widgets->auto_fix_row),
+                                  _("Fix errors automatically while idle"));
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(widgets->auto_fix_row),
+                                _("After you stop typing, scan the current line for errors and suggest a red/green fix. Tab to apply, Esc to dismiss."));
+    {
+        gboolean fix_enabled = TRUE;
+
+        if (g_key_file_has_key(settings, AI_COMPLETION_GROUP, "auto-error-fix", NULL))
+        {
+            fix_enabled = g_key_file_get_boolean(settings,
+                                                 AI_COMPLETION_GROUP,
+                                                 "auto-error-fix",
+                                                 NULL);
+        }
+        adw_switch_row_set_active(widgets->auto_fix_row, fix_enabled);
+    }
+    adw_preferences_group_add(group, GTK_WIDGET(widgets->auto_fix_row));
+
+    widgets->delay_row = ADW_SPIN_ROW(adw_spin_row_new_with_range(80, 1500, 20));
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(widgets->delay_row),
+                                  _("Completion sensitivity"));
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(widgets->delay_row),
+                                _("Pause (ms) after typing before requesting a completion. Lower is more eager."));
+    {
+        gint d = g_key_file_get_integer(settings, AI_COMPLETION_GROUP, "auto-delay", NULL);
+        if (d <= 0) d = 200;
+        adw_spin_row_set_value(widgets->delay_row, (gdouble)d);
+    }
+    adw_preferences_group_add(group, GTK_WIDGET(widgets->delay_row));
+
+    widgets->include_row = ADW_SWITCH_ROW(adw_switch_row_new());
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(widgets->include_row),
+                                  _("Include document summary in completions"));
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(widgets->include_row),
+                                _("Send the AI-maintained summary of this file with each completion request."));
+    adw_switch_row_set_active(widgets->include_row, ai_completion_get_include_summary(settings));
+    adw_preferences_group_add(group, GTK_WIDGET(widgets->include_row));
+
+    {
+        GtkStringList *modes;
+        gint context_mode;
+
+        modes = gtk_string_list_new((const gchar * const[]){
+            _("Current file only"),
+            _("Open files"),
+            _("Project directory"),
+            NULL
+        });
+        widgets->context_row = ADW_COMBO_ROW(adw_combo_row_new());
+        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(widgets->context_row),
+                                      _("Completion context"));
+        adw_action_row_set_subtitle(ADW_ACTION_ROW(widgets->context_row),
+                                    _("Which files to send as extra context: the current file, "
+                                      "all open files, or the whole project directory."));
+        adw_combo_row_set_model(widgets->context_row, G_LIST_MODEL(modes));
+        context_mode = g_key_file_get_integer(settings, "AI Completion", "context-mode", NULL);
+        if (context_mode != 1 && context_mode != 2)
+        {
+            context_mode = 0;
+        }
+        adw_combo_row_set_selected(widgets->context_row, context_mode);
+        adw_preferences_group_add(group, GTK_WIDGET(widgets->context_row));
+
+        widgets->save_ctx_row = ADW_SWITCH_ROW(adw_switch_row_new());
+        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(widgets->save_ctx_row),
+                                      _("Cache context to a hidden file"));
+        adw_action_row_set_subtitle(ADW_ACTION_ROW(widgets->save_ctx_row),
+                                    _("When using project context, write the assembled context to "
+                                      ".ai-context-cache in the project root."));
+        adw_switch_row_set_active(widgets->save_ctx_row,
+                                  g_key_file_get_boolean(settings,
+                                                          "AI Completion",
+                                                          "save-context-hidden",
+                                                          NULL));
+        adw_preferences_group_add(group, GTK_WIDGET(widgets->save_ctx_row));
+    }
+
     {
         /* 保存设置固定在页面最顶部，长列表设置（文档类型）不再被保存行截断。 */
         AdwPreferencesGroup *save_group;
@@ -2536,6 +3001,11 @@ mt_plugin_configure(MtPluginHost *host, gpointer parent_window)
         /* AI 自动总结设置组：位于 API 配置与文档类型之间。
          * 开启开关 + 修改行数间隔 + 提示说明。 */
         widgets->summary_widgets = ai_code_summary_add_config_group(page, settings);
+    }
+
+    {
+        /* 本地统计分组：请求数 / 接受数 / 估算 token。 */
+        ai_features_configure_add_stats(host, page);
     }
 
     {

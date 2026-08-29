@@ -21,8 +21,8 @@ $(BUILD_DIR)/timestamp-plugin.so: src/plugins/timestamp-plugin.c src/mt-plugin.h
 $(BUILD_DIR)/word-count-plugin.so: src/plugins/word-count-plugin.c src/mt-plugin.h | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -shared -o $@ $< $(shell pkg-config --cflags --libs gio-2.0 gmodule-2.0)
 
-$(BUILD_DIR)/ai-completion-plugin.so: src/plugins/ai-completion-plugin.c src/plugins/ai-code-summary.c src/plugins/ai-code-summary.h src/mt-plugin.h | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -shared -o $@ $< src/plugins/ai-code-summary.c $(shell pkg-config --cflags --libs gtk4 libadwaita-1 gio-2.0 gmodule-2.0 libsoup-3.0 json-glib-1.0 gtksourceview-5)
+$(BUILD_DIR)/ai-completion-plugin.so: src/plugins/ai-completion-plugin.c src/plugins/ai-code-summary.c src/plugins/ai-code-summary.h src/plugins/ai-completion-features.c src/plugins/ai-completion-features.h src/plugins/ai-completion-private.h src/plugins/ai-diff.c src/plugins/ai-diff.h src/mt-plugin.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -shared -o $@ $< src/plugins/ai-code-summary.c src/plugins/ai-completion-features.c src/plugins/ai-diff.c $(shell pkg-config --cflags --libs gtk4 libadwaita-1 gio-2.0 gmodule-2.0 libsoup-3.0 json-glib-1.0 gtksourceview-5)
 
 $(BUILD_DIR)/link-check-plugin.so: src/plugins/link-check-plugin.c src/mt-plugin.h | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -shared -o $@ $< $(shell pkg-config --cflags --libs gio-2.0 gmodule-2.0 libsoup-3.0)
