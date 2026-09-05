@@ -43,12 +43,12 @@
       "source": "project-sidebar-linux-source.vut"
     },
     {
-      "id": "io.github.vellum.build-run",
-      "name": "Build & Run",
-      "description": "Build and run from the editor",
-      "version": "1.0.0",
-      "binary": "build-run-plugin.so",
-      "source": "build-run-linux-source.vut"
+      "id": "io.github.vellum.dev-experience",
+      "name": "Dev Experience",
+      "description": "Build, run and debug with compiler error underlines and breakpoints",
+      "version": "1.1.0",
+      "binary": "dev-experience-plugin.so",
+      "source": "dev-experience-linux-source.vut"
     },
     {
       "id": "io.github.vellum.vim-mode",

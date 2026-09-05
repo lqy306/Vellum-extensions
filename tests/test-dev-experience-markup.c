@@ -1,6 +1,6 @@
 /*
- * test-build-run-markup.c
- * 验证 Build & Run 配置页中的普通文本不会被 Adwaita 当作 Pango 标记解析。
+ * test-dev-experience-markup.c
+ * 验证 Dev Experience 配置页中的普通文本不会被 Adwaita 当作 Pango 标记解析。
  */
 
 #include <adwaita.h>
@@ -14,7 +14,7 @@ static gchar *
 host_get_current_file_path(MtPluginHost *host)
 {
     (void)host;
-    return g_strdup("/tmp/vellum-build-run-test.c");
+    return g_strdup("/tmp/vellum-dev-xp-test.c");
 }
 
 static GtkWindow *
@@ -129,13 +129,13 @@ main(void)
     GtkWidget *config_window;
     GError *error;
 
-    if (g_getenv("VELLUM_BUILD_RUN_TEST_PLUGIN") == NULL)
+    if (g_getenv("VELLUM_DEV_EXPERIENCE_TEST_PLUGIN") == NULL)
     {
         return 2;
     }
 
     gtk_init();
-    module = g_module_open(g_getenv("VELLUM_BUILD_RUN_TEST_PLUGIN"), G_MODULE_BIND_LAZY);
+    module = g_module_open(g_getenv("VELLUM_DEV_EXPERIENCE_TEST_PLUGIN"), G_MODULE_BIND_LAZY);
     if (module == NULL)
     {
         return 3;

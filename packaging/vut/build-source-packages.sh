@@ -42,7 +42,7 @@ format-version=1
 id=$plugin_id
 name=$display_name
 version=0
-plugin-api=2
+plugin-api=3
 license=BSD-2-Clause
 payload=source
 
@@ -83,7 +83,7 @@ package_plugin "document-statistics" "io.github.vellum.document-statistics" "Doc
 package_plugin "ai-completion" "io.github.vellum.ai-completion" "AI Completion" "ai-completion-plugin.c" "gtk4 libadwaita-1 gio-2.0 gmodule-2.0 libsoup-3.0 json-glib-1.0"
 package_plugin "link-check" "io.github.vellum.link-check" "Test Links" "link-check-plugin.c" "gio-2.0 gmodule-2.0 libsoup-3.0"
 package_plugin "project-sidebar" "io.github.vellum.project-sidebar" "Project Sidebar" "project-sidebar-plugin.c" "gtk4 libadwaita-1 gio-2.0 gmodule-2.0"
-package_plugin "build-run" "io.github.vellum.build-run" "Build & Run" "build-run-plugin.c" "gtk4 libadwaita-1 gio-2.0 gmodule-2.0"
+package_plugin "dev-experience" "io.github.vellum.dev-experience" "Dev Experience" "dev-experience-plugin.c" "gtk4 libadwaita-1 gio-2.0 gmodule-2.0"
 package_plugin "vim-mode" "io.github.vellum.vim-mode" "Vi Mode" "vim-mode-plugin.c" "gtk4 gio-2.0 gmodule-2.0"
 package_plugin "screenshot" "io.github.vellum.screenshot" "Screenshot" "screenshot-plugin.c" "gtk4 gio-2.0 gmodule-2.0"
 package_plugin "welcome" "io.github.vellum.welcome" "Welcome Guide" "welcome-plugin.c" "gtk4 libadwaita-1 gio-2.0 gmodule-2.0"

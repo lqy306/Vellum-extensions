@@ -14,7 +14,7 @@ typedef struct _GtkWindow GtkWindow;
 
 G_BEGIN_DECLS
 
-#define MT_PLUGIN_API_VERSION 2
+#define MT_PLUGIN_API_VERSION 3
 
 typedef struct _MtPluginHost MtPluginHost;
 typedef struct _MtPluginInfo MtPluginInfo;
@@ -105,6 +105,20 @@ struct _MtPluginHost
                              const gchar *old_text, const gchar *new_text);
     void (*clear_inline_diff)(MtPluginHost *host);
     void (*apply_inline_diff)(MtPluginHost *host);
+    /* 编译器报错的红色波浪下划线 + 悬停描述。offset/length 为字节偏移，
+     * message 为悬停时显示的完整描述（可为 NULL，仅画线不给描述）。
+     * clear_error_underlines 一次性清除当前文档全部下划线。 */
+    void (*show_error_underline)(MtPluginHost *host,
+                                 gint offset,
+                                 gint length,
+                                 const gchar *message);
+    void (*clear_error_underlines)(MtPluginHost *host);
+    /* 断点：1-based 逻辑行号。set/clear 同步 gutter 标记；插件自行维护断点集合。 */
+    void (*set_breakpoint)(MtPluginHost *host, gint line);
+    void (*clear_breakpoint)(MtPluginHost *host, gint line);
+    void (*clear_all_breakpoints)(MtPluginHost *host);
+    /* 滚动到指定 1-based 行并短暂高亮，用于错误跳转与断点定位。 */
+    void (*scroll_to_line)(MtPluginHost *host, gint line);
     /* 请求宿主卸载并移除指定插件（含内置插件）。用于插件引导用户
      * 完成向导后自我删除：确认后插件会从列表隐藏且重启后不再加载。 */
     void (*request_plugin_removal)(MtPluginHost *host, const gchar *plugin_id);

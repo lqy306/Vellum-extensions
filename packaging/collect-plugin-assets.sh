@@ -30,7 +30,7 @@ word-count-plugin|io.github.vellum.document-statistics|Document Statistics|Live 
 ai-completion-plugin|io.github.vellum.ai-completion|AI Completion|Complete text through an OpenAI-compatible API|0.3.0|ai-completion
 link-check-plugin|io.github.vellum.link-check|Test Links|Check HTTP/HTTPS links in the document|1.0.0|link-check
 project-sidebar-plugin|io.github.vellum.project-sidebar|Project Sidebar|Browse a project directory|1.0.0|project-sidebar
-build-run-plugin|io.github.vellum.build-run|Build & Run|Build and run from the editor|1.0.0|build-run
+dev-experience-plugin|io.github.vellum.dev-experience|Dev Experience|Build, run and debug with compiler error underlines and breakpoints|1.1.0|dev-experience
 vim-mode-plugin|io.github.vellum.vim-mode|Vi Mode|Modal editing keybindings|1.0.0|vim-mode
 screenshot-plugin|io.github.vellum.screenshot|Screenshot|Capture the editor window|1.0.0|screenshot
 welcome-plugin|io.github.vellum.welcome|Welcome Guide|Interactive first-run guide|0.3.0|welcome"

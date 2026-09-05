@@ -21,7 +21,7 @@ sudo apt install make gcc pkg-config \
 | ai-completion-plugin | `gtk4 libadwaita-1 gio-2.0 gmodule-2.0 libsoup-3.0 json-glib-1.0 gtksourceview-5` |
 | link-check-plugin | `gio-2.0 gmodule-2.0 libsoup-3.0` |
 | project-sidebar-plugin | `gtk4 libadwaita-1 gio-2.0 gmodule-2.0` |
-| build-run-plugin | `gtk4 libadwaita-1 gio-2.0 gmodule-2.0` |
+| dev-experience-plugin | `gtk4 libadwaita-1 gio-2.0 gmodule-2.0` |
 | vim-mode-plugin | `gtk4 gio-2.0 gmodule-2.0` |
 | screenshot-plugin | `gtk4 gio-2.0 gmodule-2.0` |
 | welcome-plugin | `gtk4 libadwaita-1 gio-2.0 gmodule-2.0` |
